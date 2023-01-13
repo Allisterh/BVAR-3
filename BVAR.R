@@ -4,7 +4,7 @@
 
 rm(list=ls())
 graphics.off()
-setwd("~/dokument/TERMPAPER_NEW/Data/project_data")
+setwd("~/plugg/Kurser/Avsklutade kurser/Emirical macroeconomics/R_workspace/BVAR/Data")
 
 set.seed(123)
 #* Make sure to detach the "BVAR" package if it's active to avoid conflict with the "bvartools" package
