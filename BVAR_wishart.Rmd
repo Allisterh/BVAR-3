@@ -9,23 +9,17 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
-
-
 ```{r}
 rm(list=ls())
 graphics.off()
 setwd("~/plugg/Kurser/Avsklutade kurser/Emirical macroeconomics/R_workspace/BVAR/Data")
-
 ```
-
-
 
 ```{r}
 set.seed(123)
-#* Make sure to detach the "BVAR" package if it's active to avoid conflict with the "bvartools" package
-#detach(package:BVAR,unload=TRUE)
-library(bvartools)
+
+#detach(package:BVAR,unload=TRUE) #* Make sure to detach BVAR-package if active to avoid conflicts
+library(bvartools) 
 library(lubridate)
 library(dplyr)
 library(stringr)
@@ -34,8 +28,8 @@ library(matrixStats)
 ```
 
 
+Read CSV data
 ```{r}
-#* Read in CSV data:
 debt_raw <- read.csv("gen_debt_togdp.csv", sep=";", header=F)
 expenditure_raw <- read.csv("gen_gov_expenditure.csv", sep=";", header=F)
 GDP_raw <- read.csv("gdp.csv", sep=";", header=F)
@@ -44,10 +38,9 @@ clifs_raw <- read.csv("CLIFS.csv", sep=";", header=F)
 ```
 
 
-
+Clean the raw OECD data
+General government debt debt:
 ```{r}
-#* Clean the raw OECD data:
-#* General government debt debt:
 debt_df <- debt_raw %>% 
   select(V11, V19) %>%
   slice(-(1:2)) %>%
@@ -60,8 +53,8 @@ debt_df <- diff(log(debt_df$debt))*100
 ```
 
 
+## GDP
 ```{r}
-#* GDP:
 gdp_df <- GDP_raw %>%
   select(V9, V17) %>%
   slice(-1) %>%
@@ -74,9 +67,8 @@ gdp_df <- GDP_raw %>%
 
 
 
+General government expenditures (as share of GDP)
 ```{r}
-
-# Government expenditure:
 expend_df <- expenditure_raw %>% 
   select(V9, V17) %>%
   slice(-1) %>%
@@ -92,9 +84,8 @@ expend_df <- diff(log(expend_df$ratio))*100
 ```
 
 
+The interbank rates
 ```{r}
-
-# The interbank rates:
 int_df <- int_raw %>%
   select(V6, V7) %>%
   slice(-1) %>%
@@ -108,9 +99,8 @@ int_df <- diff(int_df$int)
 ```
 
 
-
+Read data on CLIFS index, downloaded from ECB's database
 ```{r}
-#* Read data on CLIFS index, downloaded from ECB database:
 date_vec <- (seq(as.Date('1996-01-01'),as.Date('2022-08-01'), by = '1 month'))
 
 clifs_df <- clifs_raw %>%
@@ -128,20 +118,16 @@ clifs_df <-  aggregate(clifs_df, nfrequency=4)/3
 clifs_df <- diff(clifs_df)
 ```
 
-
+Check the length
 ```{r}
-#* Merge time series:
 length(clifs_df)
 length(debt_df)
 length(expend_df)
 length(int_df)
 ```
 
-
-
-
+Merge time series
 ```{r}
-
 df <- cbind(debt_df, int_df, clifs_df)
 colnames(df) <- c("Debt ratio", "INT", "CLIFS")
 
@@ -149,8 +135,8 @@ df_2 <- cbind(expend_df, int_df, clifs_df)
 colnames(df_2) <-  c("Expenditure", "INT", "CLIFS")
 ```
 
+Define time serie objects for the two models
 ```{r}
-#* Define time serie objects for the two models
 e1 <- ts(df, start=c(1996,2), end=c(2022,2), frequency=4)
 e2 <- ts(df_2, start=c(1996,2), end=c(2022,2), frequency=4)
 
@@ -160,14 +146,13 @@ colnames(e2) <- c("Expenditure", "INT", "CLIFS")
 ```
 
 
-
+Specify VAR with 4 lags
 ```{r}
-#* Specify VAR with 4 lags
 data <- gen_var(e1, p = 4, deterministic = "const",
                 iterations = 10000, burnin = 5000)
-
 ```
 
+Get initial values for the VAR model
 ```{r}
 y <- t(data$data$Y)
 x <- t(data$data$Z)
@@ -181,54 +166,44 @@ u_sigma_freq <- tcrossprod(u_freq) / (ncol(y) - nrow(x))
 round(u_sigma_freq, 2)
 ```
 
-
+Necessary info
 ```{r}
-
-
 tt <- ncol(y) #* Number of observations
 k <- nrow(y) #* Number of endogenous variables
 m <- k * nrow(x)   #* Number of estimated coefficients
-
 ```
 
-
-Priors
+Define priors, adjust to the choice of data
 ```{r}
 #* Set priors for the coefficients
-a_mu_prior <- matrix(0, m) # Vector of prior parameter means (prior mean)
-a_v_i_prior <- diag(1, m) # Inverse of the prior covariance matrix (prior precision)
+a_mu_prior <- matrix(0, m) #* Vector of prior parameter means
+a_v_i_prior <- diag(1, m) #* Inverse of the prior covariance matrix, i.e. prior precision
 
 #* Priors for the error covariance matrix:
-u_sigma_scale_prior <- diag(1, k) # Prior covariance matrix
-u_sigma_df_prior <- m # Prior degrees of freedom
-u_sigma_df_post <- tt + u_sigma_df_prior # Posterior degrees of freedom
+u_sigma_scale_prior <- diag(1, k) #* Prior covariance matrix
+u_sigma_df_prior <- m #* Prior degrees of freedom
+u_sigma_df_post <- tt + u_sigma_df_prior #* Posterior degrees of freedom
 
-#* Draw initial values:
+#* Draw initial values
 u_sigma_i <- solve(u_sigma_freq)
 ```
 
-
-
+Define conditions for the Gibbs sampler
 ```{r}
-
 #* Define necessary conditions for the Gibbs sampler
 iter <- 30000 # Number of iterations
 burnin <- 15000 # Number of burn-in draws
 store <- iter - burnin #* Number of storage
 ```
 
-
+Create storage for the posterior draws
 ```{r}
-
-#* Create matrices to store the posterior draws in
 draws_a <- matrix(NA, m, store)
 draws_sigma <- matrix(NA, k^2, store)
-
 ```
 
-
+Initiate the Gibbs sampler
 ```{r}
-#* Start the Gibbs sampler algorithm to get posterior draws
 #* Begin 1500 iterations in the Gibbs sampler:
 for (draw in 1:iter) {
   
@@ -251,9 +226,8 @@ for (draw in 1:iter) {
 ```
 
 
-
+Summary statistics for posterior draws of the coefficients
 ```{r}
-#* Calculate summary statistics for posterior draws of the coefficients:
 A <- rowMeans(draws_a) #* Obtain means for every row
 A_sd <- rowSds(draws_a)
 
@@ -273,13 +247,8 @@ print(A)
 print(A_sd)
 ```
 
-
-
-
+Follow the previous procedure and calculate the summary statistics for posterior draws of the covariance matrix
 ```{r}
-
-
-#* Follow the previous procedure and calculate the summary statistics for posterior draws of the covariance matrix:
 Sigma <- rowMeans(draws_sigma) 
 S_sd <- rowSds(draws_sigma)
 
@@ -297,27 +266,23 @@ print(Sigma)
 print(S_sd)
 ```
 
-
+Estimate BVAR model with posterior draws from the Gibbs sampler
 ```{r}
-
-#* Estimate BVAR model with posterior draws from the Gibbs sampler:
 bvar_est <- bvar(y = data$data$Y, x = data$data$Z, A = draws_a[1:36,],
                  C = draws_a[37:39, ], Sigma = draws_sigma)
 ```
 
 
-
+Model summary
 ```{r}
-#* Model summary:
-summary(bvar_est) #* Summary for covariance matrix and coefficients, like we did previosuly
+summary(bvar_est) #* Summary for covariance matrix and coefficients
 plot(bvar_est) #* Visual presentation of the posterior draws, by the graphs it seems to have converged nicely
-
 ```
 
+Define orthogonal impulse response functions
 ```{r}
 par(mfrow=c(3,3))  
 
-#* Impulse response functions:
 #IRF's for CLIFS as the response variable:
 OIR <- irf(bvar_est, impulse = "Debt ratio", response = "CLIFS", n.ahead = 10, type = "oir", ci = 0.95)
 plot(OIR, main = "Response of CLIFS to Debt", xlab = "Period", ylab = "Response")
@@ -350,24 +315,18 @@ plot(OIR, main = "Response of INT to INT", xlab = "Period", ylab = "Response")
 
 OIR <- irf(bvar_est, impulse = "CLIFS", response = "INT", n.ahead = 10, ci = 0.95)
 plot(OIR, main = "Response of INT to CLIFS", xlab = "Period", ylab = "Response")
-
 ```
 
 
 
 
 
-############################################
-##EXPENDITURE MODEL (Alternative spec.).   #
-###########################################
 
-#* We define a alternative specification where we swap government debt with government expenditure 
-#* We use the same priors and procedure as in the first model:
-#* 
-
+## Expenditure model (Alternative specification)
+We define a alternative specification where we swap government debt with government expenditure for robustness.
+We use the same priors and procedure as in the first model but they may be adjusted depending on choice of variable:
 
 ```{r}
-
 data <- gen_var(e2, p = 4, deterministic = "const",
                 iterations = 10000, burnin = 5000)
 ```
@@ -387,9 +346,8 @@ u_sigma_freq <- tcrossprod(u_freq) / (ncol(y) - nrow(x))
 round(u_sigma_freq, 2)
 ```
 
-
+Define initial values for the Gibbs sampler:
 ```{r}
-#* Define initial values for the Gibbs sampler:
 iter <- 30000 # Number of iterations of the Gibbs sampler
 burnin <- 15000 # Number of burn-in draws
 store <- iter - burnin #* Amount of storage
@@ -402,9 +360,8 @@ k <- nrow(y) #* Number of endogenous variables
 m <- k * nrow(x) #* Number of estimated coefficients
 ```
 
-
+Specify the priors:
 ```{r}
-#* Specify the priors:
 a_mu_prior <- matrix(0, m) #* Vector of prior means
 a_v_i_prior <- diag(1, m) #* Inverse of the prior covariance matrix, i.e. the precision matrix
 u_sigma_scale_prior <- diag(1, k) #* Prior covariance "scale" matrix
@@ -415,17 +372,15 @@ u_sigma_df_post <- tt + u_sigma_df_prior #* Posterior degrees of freedom
 u_sigma_i <- solve(u_sigma_freq) #* Invert sigma
 ```
 
-
+Define two matrices to be stored by draws from the Gibbs sampler
 ```{r}
-#* Define two matrices to be stored by draws from the Gibbs sampler:
 draws_a <- matrix(NA, m, store)
 draws_sigma <- matrix(NA, k^2, store)
 
 ```
 
-
+Start the Gibbs sampler
 ```{r}
-#* Start the Gibbs sampler:
 for (draw in 1:iter) {
   
   #* Conditional mean parameters. Produces a draw of coefficients from a normal posterior density
@@ -474,17 +429,13 @@ print(Sigma )
 
 
 ```{r}
-
 bvar_est <- bvar(y = data$data$Y, x = data$data$Z, A = draws_a[1:36,],
                  C = draws_a[37:39, ], Sigma = draws_sigma)
-
 ```
 
 ```{r}
-
 summary.bvar(bvar_est)
 plot(bvar_est)
-
 ```
 
 
