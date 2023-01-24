@@ -1,14 +1,27 @@
-#author: "Erik Carle"
-#date: "2023-01-11"
+---
+title: "Bayesian VAR"
+author: "Erik Carle"
+date: "2023-01-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
 
 
 
 
-
+```{r}
 rm(list=ls())
 graphics.off()
 setwd("~/plugg/Kurser/Avsklutade kurser/Emirical macroeconomics/R_workspace/BVAR/Data")
 
+```
+
+
+
+```{r}
 set.seed(123)
 #* Make sure to detach the "BVAR" package if it's active to avoid conflict with the "bvartools" package
 #detach(package:BVAR,unload=TRUE)
@@ -18,14 +31,21 @@ library(dplyr)
 library(stringr)
 library(matrixStats)
 #library(coda)
+```
 
+
+```{r}
 #* Read in CSV data:
 debt_raw <- read.csv("gen_debt_togdp.csv", sep=";", header=F)
 expenditure_raw <- read.csv("gen_gov_expenditure.csv", sep=";", header=F)
 GDP_raw <- read.csv("gdp.csv", sep=";", header=F)
 int_raw <- read.csv("short_int.csv", sep=";", header=F)
 clifs_raw <- read.csv("CLIFS.csv", sep=";", header=F)
+```
 
+
+
+```{r}
 #* Clean the raw OECD data:
 #* General government debt debt:
 debt_df <- debt_raw %>% 
@@ -37,7 +57,10 @@ debt_df <- debt_raw %>%
   select(debt)
 
 debt_df <- diff(log(debt_df$debt))*100
+```
 
+
+```{r}
 #* GDP:
 gdp_df <- GDP_raw %>%
   select(V9, V17) %>%
@@ -47,6 +70,11 @@ gdp_df <- GDP_raw %>%
   mutate_at(c('gdp'), as.numeric) %>%
   mutate(date=yq(date)) %>%
   select(gdp)
+```
+
+
+
+```{r}
 
 # Government expenditure:
 expend_df <- expenditure_raw %>% 
@@ -61,6 +89,10 @@ expend_df <- expenditure_raw %>%
   select(ratio)
 
 expend_df <- diff(log(expend_df$ratio))*100
+```
+
+
+```{r}
 
 # The interbank rates:
 int_df <- int_raw %>%
@@ -73,7 +105,11 @@ int_df <- int_raw %>%
   select(int)
 
 int_df <- diff(int_df$int)
+```
 
+
+
+```{r}
 #* Read data on CLIFS index, downloaded from ECB database:
 date_vec <- (seq(as.Date('1996-01-01'),as.Date('2022-08-01'), by = '1 month'))
 
@@ -90,19 +126,30 @@ clifs_df <- clifs_raw %>%
 clifs_df <- ts(clifs_df, start=c(1996,1), end=c(2022,8), frequency=12)
 clifs_df <-  aggregate(clifs_df, nfrequency=4)/3
 clifs_df <- diff(clifs_df)
+```
 
+
+```{r}
 #* Merge time series:
 length(clifs_df)
 length(debt_df)
 length(expend_df)
 length(int_df)
+```
+
+
+
+
+```{r}
 
 df <- cbind(debt_df, int_df, clifs_df)
 colnames(df) <- c("Debt ratio", "INT", "CLIFS")
 
 df_2 <- cbind(expend_df, int_df, clifs_df)
 colnames(df_2) <-  c("Expenditure", "INT", "CLIFS")
+```
 
+```{r}
 #* Define time serie objects for the two models
 e1 <- ts(df, start=c(1996,2), end=c(2022,2), frequency=4)
 e2 <- ts(df_2, start=c(1996,2), end=c(2022,2), frequency=4)
@@ -110,11 +157,18 @@ e2 <- ts(df_2, start=c(1996,2), end=c(2022,2), frequency=4)
 #* Renaming columns
 colnames(e1) <- c("Debt ratio", "INT", "CLIFS")
 colnames(e2) <- c("Expenditure", "INT", "CLIFS")
+```
 
+
+
+```{r}
 #* Specify VAR with 4 lags
 data <- gen_var(e1, p = 4, deterministic = "const",
                 iterations = 10000, burnin = 5000)
 
+```
+
+```{r}
 y <- t(data$data$Y)
 x <- t(data$data$Z)
 
@@ -125,12 +179,21 @@ round(A_freq, 3)
 u_freq <- y - A_freq %*% x
 u_sigma_freq <- tcrossprod(u_freq) / (ncol(y) - nrow(x))
 round(u_sigma_freq, 2)
+```
+
+
+```{r}
+
 
 tt <- ncol(y) #* Number of observations
 k <- nrow(y) #* Number of endogenous variables
 m <- k * nrow(x)   #* Number of estimated coefficients
 
+```
 
+
+Priors
+```{r}
 #* Set priors for the coefficients
 a_mu_prior <- matrix(0, m) # Vector of prior parameter means (prior mean)
 a_v_i_prior <- diag(1, m) # Inverse of the prior covariance matrix (prior precision)
@@ -142,18 +205,29 @@ u_sigma_df_post <- tt + u_sigma_df_prior # Posterior degrees of freedom
 
 #* Draw initial values:
 u_sigma_i <- solve(u_sigma_freq)
+```
+
+
+
+```{r}
 
 #* Define necessary conditions for the Gibbs sampler
 iter <- 30000 # Number of iterations
 burnin <- 15000 # Number of burn-in draws
 store <- iter - burnin #* Number of storage
+```
 
+
+```{r}
 
 #* Create matrices to store the posterior draws in
 draws_a <- matrix(NA, m, store)
 draws_sigma <- matrix(NA, k^2, store)
 
+```
 
+
+```{r}
 #* Start the Gibbs sampler algorithm to get posterior draws
 #* Begin 1500 iterations in the Gibbs sampler:
 for (draw in 1:iter) {
@@ -174,8 +248,11 @@ for (draw in 1:iter) {
     draws_sigma[, draw - burnin] <- u_sigma
   }
 }
+```
 
 
+
+```{r}
 #* Calculate summary statistics for posterior draws of the coefficients:
 A <- rowMeans(draws_a) #* Obtain means for every row
 A_sd <- rowSds(draws_a)
@@ -194,6 +271,12 @@ dimnames(A_sd) <- list(dimnames(y)[[1]], dimnames(x)[[1]])
 # Print out posterior draws for the coefficients:
 print(A)
 print(A_sd)
+```
+
+
+
+
+```{r}
 
 
 #* Follow the previous procedure and calculate the summary statistics for posterior draws of the covariance matrix:
@@ -212,17 +295,26 @@ dimnames(S_sd) <- list(dimnames(y)[[1]], dimnames(y)[[1]])
 
 print(Sigma)
 print(S_sd)
+```
 
+
+```{r}
 
 #* Estimate BVAR model with posterior draws from the Gibbs sampler:
 bvar_est <- bvar(y = data$data$Y, x = data$data$Z, A = draws_a[1:36,],
                  C = draws_a[37:39, ], Sigma = draws_sigma)
+```
 
+
+
+```{r}
 #* Model summary:
 summary(bvar_est) #* Summary for covariance matrix and coefficients, like we did previosuly
 plot(bvar_est) #* Visual presentation of the posterior draws, by the graphs it seems to have converged nicely
 
+```
 
+```{r}
 par(mfrow=c(3,3))  
 
 #* Impulse response functions:
@@ -259,6 +351,11 @@ plot(OIR, main = "Response of INT to INT", xlab = "Period", ylab = "Response")
 OIR <- irf(bvar_est, impulse = "CLIFS", response = "INT", n.ahead = 10, ci = 0.95)
 plot(OIR, main = "Response of INT to CLIFS", xlab = "Period", ylab = "Response")
 
+```
+
+
+
+
 
 ############################################
 ##EXPENDITURE MODEL (Alternative spec.).   #
@@ -267,9 +364,16 @@ plot(OIR, main = "Response of INT to CLIFS", xlab = "Period", ylab = "Response")
 #* We define a alternative specification where we swap government debt with government expenditure 
 #* We use the same priors and procedure as in the first model:
 #* 
+
+
+```{r}
+
 data <- gen_var(e2, p = 4, deterministic = "const",
                 iterations = 10000, burnin = 5000)
+```
 
+
+```{r}
 y <- t(data$data$Y)
 x <- t(data$data$Z)
 
@@ -281,17 +385,25 @@ round(A_freq, 3) # Round estimates and print
 u_freq <- y - A_freq %*% x
 u_sigma_freq <- tcrossprod(u_freq) / (ncol(y) - nrow(x))
 round(u_sigma_freq, 2)
+```
 
 
+```{r}
 #* Define initial values for the Gibbs sampler:
 iter <- 30000 # Number of iterations of the Gibbs sampler
 burnin <- 15000 # Number of burn-in draws
 store <- iter - burnin #* Amount of storage
+```
 
+
+```{r}
 tt <- ncol(y) #* Number of observations
 k <- nrow(y) #* Number of endogenous variables
 m <- k * nrow(x) #* Number of estimated coefficients
+```
 
+
+```{r}
 #* Specify the priors:
 a_mu_prior <- matrix(0, m) #* Vector of prior means
 a_v_i_prior <- diag(1, m) #* Inverse of the prior covariance matrix, i.e. the precision matrix
@@ -301,11 +413,18 @@ u_sigma_df_prior <- m #* Prior degrees of freedom
 u_sigma_df_post <- tt + u_sigma_df_prior #* Posterior degrees of freedom
 
 u_sigma_i <- solve(u_sigma_freq) #* Invert sigma
+```
 
+
+```{r}
 #* Define two matrices to be stored by draws from the Gibbs sampler:
 draws_a <- matrix(NA, m, store)
 draws_sigma <- matrix(NA, k^2, store)
 
+```
+
+
+```{r}
 #* Start the Gibbs sampler:
 for (draw in 1:iter) {
   
@@ -326,7 +445,10 @@ for (draw in 1:iter) {
     draws_sigma[, draw - burnin] <- u_sigma
   }
 }
+```
 
+
+```{r}
 
 A <- rowMeans(draws_a)# Obtain means for every row
 #A_sd <- rowSds(draws_a)
@@ -338,22 +460,35 @@ dimnames(A) <- list(dimnames(y)[[1]], dimnames(x)[[1]]) # Rename matrix dimensio
 #dimnames(A_sd) <- list(dimnames(y)[[1]], dimnames(x)[[1]]) #
 print(A)
 #print(A_sd)
+```
 
+
+```{r}
 Sigma <- rowMeans(draws_sigma) # Obtain means for every row
 Sigma <- matrix(Sigma, k) # Transform mean vector into a matrix
 Sigma <- round(Sigma, 2) # Round values
 dimnames(Sigma) <- list(dimnames(y)[[1]], dimnames(y)[[1]]) # Rename matrix dimensions
 print(Sigma )
 
+```
+
+
+```{r}
 
 bvar_est <- bvar(y = data$data$Y, x = data$data$Z, A = draws_a[1:36,],
                  C = draws_a[37:39, ], Sigma = draws_sigma)
 
+```
+
+```{r}
 
 summary.bvar(bvar_est)
 plot(bvar_est)
 
+```
 
+
+```{r}
 par(mfrow=c(3,3))  
 #IRF for government expenditure as the response variable
 OIR <- irf(bvar_est, impulse = "CLIFS", response = "Expenditure", n.ahead = 16, type = "oir")
@@ -367,8 +502,10 @@ plot(OIR, main = "Response of CLIFS to Expenditure", xlab = "Period", ylab = "Re
 OIR <- irf(bvar_est, impulse = "Expenditure", response = "INT", n.ahead = 16)
 plot(OIR, main = "Response of INT to Expenditure", xlab = "Period", ylab = "Response")
 
+```
 
-1+1
+
+
 
 
 
