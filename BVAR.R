@@ -368,7 +368,3 @@ OIR <- irf(bvar_est, impulse = "Expenditure", response = "INT", n.ahead = 16)
 plot(OIR, main = "Response of INT to Expenditure", xlab = "Period", ylab = "Response")
 
 
-1+1
-
-
-
