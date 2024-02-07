@@ -1,2 +1,2 @@
 # Bayesian vector autoregression
-BVAR with weakly infomrative Wishart priors using the Gibbs sampler. 
+Estimation of a Bayesian Vector Autoregression (BVAR) with weakly informative Wishart priors using the Gibbs sampler. 
